@@ -1,0 +1,76 @@
+{
+  "info": {
+    "name": "Fuel Route Planner",
+    "description": "Requests for the fuel route planner API. Run the server with `python manage.py runserver` first.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [{ "key": "base_url", "value": "http://127.0.0.1:8000" }],
+  "item": [
+    {
+      "name": "Plan trip - New York to Los Angeles",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"Los Angeles, CA\"\n}" }
+      }
+    },
+    {
+      "name": "Plan trip - Chicago to Miami",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"Chicago, IL\",\n  \"finish\": \"Miami, FL\"\n}" }
+      }
+    },
+    {
+      "name": "Plan trip - coordinates",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": {\"lat\": 47.6062, \"lng\": -122.3321},\n  \"finish\": {\"lat\": 32.7767, \"lng\": -96.7970}\n}"
+        }
+      }
+    },
+    {
+      "name": "Plan trip - street address (uses geocoding)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"1600 Pennsylvania Ave NW, Washington, DC\",\n  \"finish\": \"Denver, CO\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Plan trip - GET",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/route/?start=Boston, MA&finish=Houston, TX",
+          "host": ["{{base_url}}"],
+          "path": ["api", "route", ""],
+          "query": [
+            { "key": "start", "value": "Boston, MA" },
+            { "key": "finish", "value": "Houston, TX" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Error - location outside USA",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{base_url}}/api/route/",
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"Toronto, ON\",\n  \"finish\": \"Los Angeles, CA\"\n}" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Django defaults to "same-origin", which strips the Referer header that tile servers require. -->
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Fuel Route Planner</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <style>
+    :root { --ink: #1c2430; --muted: #5f6b7a; --line: #e3e7ec; --accent: #0f766e; --stop: #d97706; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #f6f7f9; }
+    .layout { display: grid; grid-template-columns: 360px 1fr; height: 100vh; }
+    aside { overflow-y: auto; background: #fff; border-right: 1px solid var(--line); padding: 20px; }
+    #map { height: 100%; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .trip { color: var(--muted); margin-bottom: 16px; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
+    .stat { background: #f6f7f9; border-radius: 8px; padding: 10px 12px; }
+    .stat b { display: block; font-size: 18px; }
+    .stat span { color: var(--muted); font-size: 12px; }
+    .stat.total { grid-column: span 2; background: #ecfdf5; }
+    .stat.total b { color: var(--accent); font-size: 22px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+    ol { list-style: none; padding: 0; margin: 0; }
+    li { border-top: 1px solid var(--line); padding: 10px 0; cursor: pointer; }
+    li:hover .name { color: var(--accent); }
+    .name { font-weight: 600; }
+    .meta { color: var(--muted); font-size: 12px; }
+    .badge { display: inline-block; min-width: 22px; text-align: center; background: var(--stop); color: #fff; border-radius: 11px; font-size: 12px; font-weight: 600; padding: 1px 6px; margin-right: 6px; }
+    .note { color: var(--muted); font-size: 12px; margin-top: 16px; }
+    .error { max-width: 520px; margin: 80px auto; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 24px; }
+    .pin { background: var(--stop); color: #fff; border: 2px solid #fff; border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; font-weight: 700; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; } #map { height: 55vh; order: -1; } }
+  </style>
+</head>
+<body>
+{% if error %}
+  <div class="error">
+    <h1>Couldn't plan this trip</h1>
+    <p>{% if error.error %}{{ error.error }}{% else %}{{ error }}{% endif %}</p>
+    <p class="meta">Example: <code>/api/route/map/?start=New York, NY&amp;finish=Los Angeles, CA</code></p>
+  </div>
+{% else %}
+  <div class="layout">
+    <aside>
+      <h1>Fuel Route Planner</h1>
+      <div class="trip">{{ trip.start.resolved_as }} → {{ trip.finish.resolved_as }}</div>
+      <div class="stats">
+        <div class="stat total"><b>${{ trip.summary.total_fuel_cost_usd|floatformat:2 }}</b><span>total fuel cost</span></div>
+        <div class="stat"><b>{{ trip.summary.distance_miles|floatformat:0 }} mi</b><span>distance</span></div>
+        <div class="stat"><b>{{ trip.summary.number_of_fuel_stops }}</b><span>fuel stops</span></div>
+        <div class="stat"><b>{{ trip.summary.gallons_purchased|floatformat:1 }}</b><span>gallons bought</span></div>
+        <div class="stat"><b>{{ trip.summary.estimated_drive_time_hours|floatformat:1 }} h</b><span>drive time</span></div>
+      </div>
+      <h2>Fuel stops</h2>
+      <ol>
+        {% for stop in trip.fuel_stops %}
+          <li data-stop="{{ forloop.counter0 }}">
+            <div class="name"><span class="badge">{{ stop.stop_number }}</span>{{ stop.station.name }}</div>
+            <div class="meta">{{ stop.station.city }}, {{ stop.station.state }} · mile {{ stop.mile_marker|floatformat:0 }}</div>
+            <div class="meta">${{ stop.price_per_gallon|floatformat:3 }}/gal · {{ stop.gallons|floatformat:1 }} gal · <b>${{ stop.cost_usd|floatformat:2 }}</b></div>
+          </li>
+        {% empty %}
+          <li class="meta">No stops needed: the trip fits in one tank.</li>
+        {% endfor %}
+      </ol>
+      <p class="note">Assumes a full tank at the start, {{ trip.summary.assumptions.vehicle_range_miles|floatformat:0 }}-mile range and {{ trip.summary.assumptions.miles_per_gallon|floatformat:0 }} mpg. Stations are placed at their city's location.</p>
+    </aside>
+    <div id="map"></div>
+  </div>
+  {{ trip.map|json_script:"trip-geojson" }}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    const data = JSON.parse(document.getElementById("trip-geojson").textContent);
+    const map = L.map("map");
+    // Two free, key-less base maps. OpenStreetMap needs a Referer header
+    // (see SECURE_REFERRER_POLICY in settings); Esri is the backup.
+    const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    });
+    const esri = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19,
+      attribution: "Tiles &copy; Esri",
+    });
+    const baseName = new URLSearchParams(location.search).get("tiles") === "esri" ? "Esri" : "OpenStreetMap";
+    const bases = { "OpenStreetMap": osm, "Esri": esri };
+    bases[baseName].addTo(map);
+    L.control.layers(bases, null, { position: "topright" }).addTo(map);
+
+    const stopMarkers = [];
+    const layer = L.geoJSON(data, {
+      style: { color: "#0f766e", weight: 5, opacity: 0.85 },
+      pointToLayer: (f, latlng) => {
+        const p = f.properties;
+        if (p.kind === "fuel_stop") {
+          const icon = L.divIcon({ className: "", html: `<div class="pin">${p.stop_number}</div>`, iconSize: [26, 26] });
+          const m = L.marker(latlng, { icon }).bindPopup(
+            `<b>${p.name}</b><br>$${p.price_per_gallon.toFixed(3)}/gal<br>${p.gallons.toFixed(1)} gal · $${p.cost_usd.toFixed(2)}`
+          );
+          stopMarkers.push(m);
+          return m;
+        }
+        return L.circleMarker(latlng, {
+          radius: 8, weight: 3, color: "#fff", fillOpacity: 1,
+          fillColor: p.kind === "start" ? "#2563eb" : "#dc2626",
+        }).bindPopup(`<b>${p.kind === "start" ? "Start" : "Finish"}</b><br>${p.name}`);
+      },
+    }).addTo(map);
+    map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+
+    document.querySelectorAll("li[data-stop]").forEach((li) => {
+      li.addEventListener("click", () => {
+        const m = stopMarkers[Number(li.dataset.stop)];
+        map.setView(m.getLatLng(), 10);
+        m.openPopup();
+      });
+    });
+  </script>
+{% endif %}
+</body>
+</html>
